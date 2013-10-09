@@ -6,7 +6,8 @@
 
     //Let's create these here to gain a lot of performance
     var platforms = WebCL.getPlatformIDs(),
-        ctx = WebCL.createContextFromType([WebCL.CL_CONTEXT_PLATFORM, platforms[0]], WebCL.CL_DEVICE_TYPE_DEFAULT);
+        ctx = WebCL.createContextFromType([WebCL.CL_CONTEXT_PLATFORM, platforms[0]], WebCL.CL_DEVICE_TYPE_DEFAULT),
+        devices = ctx.getContextInfo(WebCL.CL_CONTEXT_DEVICES);
 
     //console.log(devices[0].getDeviceInfo(WebCL.CL_DEVICE_NAME));
 
@@ -27,26 +28,27 @@
 
     (function () {
         var clThresholdImage = "__kernel void clThresholdImage(__global const uchar4* src, __global uchar4* dst, uint width, uint height) " +
-            "{ " +
-            "int x = get_global_id(0); " +
-            "int y = get_global_id(1); " +
-            "if (x >= width || y >= height) return; " +
-            "int i = y * width + x; " +
-            "int color = src[i].x;" +
-            "if (color <= 180)" +
-            "{" +
-            "color= 0;" +
-            "}" +
-            "dst[i] = (uchar4)(color, color, color, 255);" +
-            "}",
+                "{ " +
+                "int x = get_global_id(0); " +
+                "int y = get_global_id(1); " +
+                "if (x >= width || y >= height) return; " +
+                "int i = y * width + x; " +
+                "int color = src[i].x;" +
+                "if (color <= 150)" +
+                "{" +
+                "color= 0;" +
+                "}" +
+                "dst[i] = (uchar4)(color, color, color, 255);" +
+                "}",
+
+            program,
             kernels = [],
+            kernel,
             i;
 
         // Create and build program
-        for (i = 4; i--;) {
-            var program = ctx.createProgramWithSource(clThresholdImage),
-                devices = ctx.getContextInfo(WebCL.CL_CONTEXT_DEVICES),
-                kernel;
+        for (i = 3; i--;) {
+            program = ctx.createProgramWithSource(clThresholdImage);
 
             try {
                 program.buildProgram([devices[0]], "");
@@ -71,63 +73,64 @@
             kernels.push(kernel);
         }
 
-        Xflow.registerOperator("xflow.clThresholdImage", {
-            outputs: [
-                {type: 'texture', name: 'result', sizeof: 'image'}
-            ],
-            params: [
-                {type: 'texture', source: 'image'}
-            ],
+        Xflow.registerOperator(
+            "xflow.clThresholdImage", {
+                outputs: [
+                    {type: 'texture', name: 'result', sizeof: 'image'}
+                ],
+                params: [
+                    {type: 'texture', source: 'image'}
+                ],
 
-            evaluate: function (result, image) {
-                //TODO: Divide processing to 4 separate kernels, slice image in 4 parts
+                evaluate: function (result, image) {
+                    //TODO: Divide processing to 4 separate kernels, slice image in 4 parts
 
-                //console.time("dataflowtimeWebCL");
+                    //console.time("dataflowtimeWebCL");
 
-                //passing xflow operators input data
-                var s = image.data,
-                    width = image.width,
-                    height = image.height;
+                    //passing xflow operators input data
+                    var s = image.data,
+                        width = image.width,
+                        height = image.height;
 
-                // Setup buffers
-                var imgSize = width * height,
-                    bufSize = imgSize * 4; // size in bytes
+                    // Setup buffers
+                    var imgSize = width * height,
+                        bufSize = imgSize * 4; // size in bytes
 
-                // Setup WebCL context using the default device of the first available platform
-                var bufIn = ctx.createBuffer(WebCL.CL_MEM_READ_ONLY, bufSize),
-                    bufOut = ctx.createBuffer(WebCL.CL_MEM_WRITE_ONLY, bufSize);
+                    // Setup WebCL context using the default device of the first available platform
+                    var bufIn = ctx.createBuffer(WebCL.CL_MEM_READ_ONLY, bufSize),
+                        bufOut = ctx.createBuffer(WebCL.CL_MEM_WRITE_ONLY, bufSize);
 
 
-                kernels[0].setKernelArg(0, bufIn);
-                kernels[0].setKernelArg(1, bufOut);
-                kernels[0].setKernelArg(2, width, WebCL.types.UINT);
-                kernels[0].setKernelArg(3, height, WebCL.types.UINT);
+                    kernels[0].setKernelArg(0, bufIn);
+                    kernels[0].setKernelArg(1, bufOut);
+                    kernels[0].setKernelArg(2, width, WebCL.types.UINT);
+                    kernels[0].setKernelArg(3, height, WebCL.types.UINT);
 
-                // Create command queue using the first available device
-                var cmdQueue = ctx.createCommandQueue(devices[0], 0);
+                    // Create command queue using the first available device
+                    var cmdQueue = ctx.createCommandQueue(devices[0], 0);
 
-                // Write the buffer to OpenCL device memory
-                cmdQueue.enqueueWriteBuffer(bufIn, false, 0, bufSize, image.data, []);
+                    // Write the buffer to OpenCL device memory
+                    cmdQueue.enqueueWriteBuffer(bufIn, false, 0, bufSize, image.data, []);
 
-                // Init ND-range
-                var localWS = [16, 4],
-                    globalWS = [Math.ceil(width / localWS[0]) * localWS[0], Math.ceil(height / localWS[1]) * localWS[1]];
+                    // Init ND-range
+                    var localWS = [16, 4],
+                        globalWS = [Math.ceil(width / localWS[0]) * localWS[0], Math.ceil(height / localWS[1]) * localWS[1]];
 
-                // Execute (enqueue) kernel
+                    // Execute (enqueue) kernel
 
-                cmdQueue.enqueueNDRangeKernel(kernels[0], globalWS.length, [], globalWS, localWS, []);
+                    cmdQueue.enqueueNDRangeKernel(kernels[0], globalWS.length, [], globalWS, localWS, []);
 
-                // Read the result buffer from OpenCL device
-                cmdQueue.enqueueReadBuffer(bufOut, false, 0, bufSize, result.data, []);
+                    // Read the result buffer from OpenCL device
+                    cmdQueue.enqueueReadBuffer(bufOut, false, 0, bufSize, result.data, []);
 
-                cmdQueue.finish(); //Finish all the operations
+                    cmdQueue.finish(); //Finish all the operations
 
-                // console.timeEnd("dataflowtimeWebCL");
+                    // console.timeEnd("dataflowtimeWebCL");
 
-                return true;
-            }
+                    return true;
+                }
 
-        });
+            });
     }());
 
     /**
@@ -179,7 +182,7 @@
                 {type: 'texture', source: 'image'}
             ],
             evaluate: function (result, image) {
-                 //TODO: Divide processing to 4 separate kernels, slice image in 4 parts
+                //TODO: Divide processing to 4 separate kernels, slice image in 4 parts
                 //console.time("dataflowtimeWebclSecond");
 
                 //passing xflow operators input data
