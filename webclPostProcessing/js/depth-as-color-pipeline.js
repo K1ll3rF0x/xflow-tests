@@ -1,53 +1,23 @@
 (function () {
-    var PostProcessingPipeline, forwardPipeline, currentPipeline, renderI, injectDepthPipeline, swapPipelines;
+    var webGL = XML3D.webgl;
 
-    injectDepthPipeline = function () {
-        var xml3ds = document.getElementsByTagName("xml3d");
+    // Defining post processing pipeline
 
-        if (xml3ds[0]) {
-            renderI = xml3ds[0].getRenderInterface();
-
-            //The normal forward rendering pipeline is always available initially
-            //It's also available as a render pass under the constructor XML3D.webgl.ForwardRenderPass(context),
-            forwardPipeline = renderI.getRenderPipeline();
-
-            PostProcessingPipeline = new XML3D.webgl.PostProcessingPipeline(renderI.context);
-            PostProcessingPipeline.init();
-            renderI.setRenderPipeline(PostProcessingPipeline);
-            currentPipeline = "depth";
-        }
-    };
-
-    swapPipelines = function (evt) {
-        if (evt.keyCode === 112) /* P */ {
-            if (currentPipeline === "depth") {
-                renderI.setRenderPipeline(forwardPipeline);
-                currentPipeline = "forward";
-            } else {
-                renderI.setRenderPipeline(PostProcessingPipeline);
-                currentPipeline = "depth";
-            }
-        }
-    };
-
-    window.addEventListener("keypress", swapPipelines);
-    window.addEventListener("load", injectDepthPipeline);
-
-    (function (webgl) {
+    (function () {
 
         var PostProcessingPipeline = function (context) {
-            webgl.RenderPipeline.call(this, context);
+            webGL.RenderPipeline.call(this, context);
             this.createRenderPasses();
         };
 
-        XML3D.createClass(PostProcessingPipeline, webgl.RenderPipeline);
+        XML3D.createClass(PostProcessingPipeline, webGL.RenderPipeline);
 
         XML3D.extend(PostProcessingPipeline.prototype, {
             init: function () {
                 var context = this.context;
 
                 //Also available: webgl.GLScaledRenderTarget
-                var backBuffer = new webgl.GLRenderTarget(context, {
+                var backBuffer = new webGL.GLRenderTarget(context, {
                     width: context.canvasTarget.width,
                     height: context.canvasTarget.height,
                     colorFormat: context.gl.RGBA,
@@ -84,18 +54,18 @@
             }
         });
 
-        webgl.PostProcessingPipeline = PostProcessingPipeline;
+        webGL.PostProcessingPipeline = PostProcessingPipeline;
 
-    })(XML3D.webgl);
+    }());
 
 
-    (function (webgl) {
+    (function () {
 
         var WebCLPass = function (pipeline, output, opt) {
-            webgl.BaseRenderPass.call(this, pipeline, output, opt);
+            webGL.BaseRenderPass.call(this, pipeline, output, opt);
         };
 
-        XML3D.createClass(WebCLPass, webgl.BaseRenderPass, {
+        XML3D.createClass(WebCLPass, webGL.BaseRenderPass, {
             init: function (context) {
                 this.debugCanvas = document.getElementById("debug");
                 this.debugCtx = this.debugCanvas.getContext("2d");
@@ -118,7 +88,7 @@
                 imageData = this.debugCtx.createImageData(sourceTex.height, sourceTex.width);
                 imageData.data.set(pixelData);
                 this.debugCtx.putImageData(imageData, 0, 0);
-                
+
                 // --- Debug end
 
                 // TODO: Do something cool with WebCL here by modifying the texturebuffer in WebCL context.
@@ -129,36 +99,39 @@
             }
         });
 
-        webgl.WebCLPass = WebCLPass;
+        webGL.WebCLPass = WebCLPass;
 
-    }(XML3D.webgl));
+    }());
 
 
-    (function (webgl) {
+    (function () {
 
         var BlitPass = function (pipeline, output, opt) {
-            webgl.BaseRenderPass.call(this, pipeline, output, opt);
+            webGL.BaseRenderPass.call(this, pipeline, output, opt);
             this.screenQuad = {};
         };
 
-        XML3D.createClass(BlitPass, webgl.BaseRenderPass, {
+        XML3D.createClass(BlitPass, webGL.BaseRenderPass, {
             init: function (context) {
                 var shader = context.programFactory.getProgramByName("drawTexture");
                 this.pipeline.addShader("blitShader", shader);
-                this.screenQuad = new XML3D.webgl.FullscreenQuad(context);
+                this.screenQuad = new webGL.FullscreenQuad(context);
                 this.canvasSize = new Float32Array([context.canvasTarget.width, context.canvasTarget.height]);
+                this.gl = this.pipeline.context.gl;
             },
 
             render: function (scene) {
-                var gl = this.pipeline.context.gl;
-                var target = this.pipeline.getRenderTarget(this.output);
+                var gl = this.gl,
+                    target = this.pipeline.getRenderTarget(this.output),
+                    program = this.pipeline.getShader("blitShader"),
+                    sourceTex = this.pipeline.getRenderTarget(this.inputs.inputTexture);
+
                 target.bind();
                 gl.clear(gl.DEPTH_BUFFER_BIT || gl.COLOR_BUFFER_BIT);
 
-                var program = this.pipeline.getShader("blitShader");
                 program.bind();
+
                 //Request the framebuffer from the render pipeline, using its name (in this case 'backBufferOne')
-                var sourceTex = this.pipeline.getRenderTarget(this.inputs.inputTexture);
                 program.setUniformVariables({ inputTexture: sourceTex.colorTarget, canvasSize: this.canvasSize});
 
                 this.screenQuad.draw(program);
@@ -168,9 +141,9 @@
             }
         });
 
-        webgl.BlitPass = BlitPass;
+        webGL.BlitPass = BlitPass;
 
-    }(XML3D.webgl));
+    }());
 
     XML3D.shaders.register("drawTexture", {
 
@@ -200,5 +173,44 @@
             inputTexture: null
         }
     });
+
+
+    // --- Initialisation ---
+
+    var PPPipeline, forwardPipeline, currentPipeline, renderI, initPPPipeLine, swapPipelines;
+
+    initPPPipeLine = function () {
+        var xml3ds = document.getElementsByTagName("xml3d"), ctx;
+
+        if (xml3ds[0]) {
+            //Render pipeline is gettable only from XMl3D element only after xml3d has been properly initialised
+            renderI = xml3ds[0].getRenderInterface();
+
+            //The normal forward rendering pipeline is always available initially
+            //It's also available as a render pass under the constructor XML3D.webgl.ForwardRenderPass(context),
+            forwardPipeline = renderI.getRenderPipeline();
+
+            PPPipeline = new webGL.PostProcessingPipeline(renderI.context);
+            PPPipeline.init();
+            renderI.setRenderPipeline(PPPipeline);
+            currentPipeline = "postProcess";
+        }
+    };
+
+    swapPipelines = function (evt) {
+        if (evt.keyCode === 112) /* P */ {
+            if (currentPipeline === "postProcess") {
+                renderI.setRenderPipeline(forwardPipeline);
+                currentPipeline = "forward";
+            } else {
+                renderI.setRenderPipeline(PPPipeline);
+                currentPipeline = "postProcess";
+            }
+        }
+    };
+
+    window.addEventListener("keypress", swapPipelines);
+    window.addEventListener("load", initPPPipeLine);
+
 
 }());
