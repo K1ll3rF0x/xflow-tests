@@ -1,23 +1,37 @@
 (function () {
-    var webGL = XML3D.webgl;
+    var webgl = XML3D.webgl,
+        webcl = XML3D.webcl;
+
+
+    webcl.kernels.register("clDesaturate",
+        ["__kernel void clDesaturate(__global const uchar4* src, __global uchar4* dst, uint width, uint height)",
+            "{",
+            "int x = get_global_id(0);",
+            "int y = get_global_id(1);",
+            "if (x >= width || y >= height) return;",
+            "int i = y * width + x;  uchar4 color = src[i];",
+            "uchar lum = (uchar)(0.30f * color.x + 0.59f * color.y + 0.11f * color.z);",
+            "dst[i] = (uchar4)(lum, lum, lum, 255);",
+            "}"].join("\n"));
+
 
     // Defining post processing pipeline
 
     (function () {
 
         var PostProcessingPipeline = function (context) {
-            webGL.RenderPipeline.call(this, context);
+            webgl.RenderPipeline.call(this, context);
             this.createRenderPasses();
         };
 
-        XML3D.createClass(PostProcessingPipeline, webGL.RenderPipeline);
+        XML3D.createClass(PostProcessingPipeline, webgl.RenderPipeline);
 
         XML3D.extend(PostProcessingPipeline.prototype, {
             init: function () {
                 var context = this.context;
 
                 //Also available: webgl.GLScaledRenderTarget
-                var backBuffer = new webGL.GLRenderTarget(context, {
+                var backBuffer = new webgl.GLRenderTarget(context, {
                     width: context.canvasTarget.width,
                     height: context.canvasTarget.height,
                     colorFormat: context.gl.RGBA,
@@ -44,9 +58,9 @@
                 //This is where the render process is defined as a series of render passes. They will be executed in the
                 //order that they are added. XML3D.webgl.ForwardRenderPass may be used to draw all visible objects to the given target
 
-                var forwardPass1 = new XML3D.webgl.ForwardRenderPass(this, "backBufferOne"),
-                    webCLPass = new XML3D.webgl.WebCLPass(this, "backBufferOne", {inputs: { inputTexture: "backBufferOne" }}),
-                    BlitPass = new XML3D.webgl.BlitPass(this, "screen", {inputs: { inputTexture: "backBufferOne" }});
+                var forwardPass1 = new webgl.ForwardRenderPass(this, "backBufferOne"),
+                    webCLPass = new webgl.WebCLPass(this, "backBufferOne", {inputs: { inputTexture: "backBufferOne" }}),
+                    BlitPass = new webgl.BlitPass(this, "screen", {inputs: { inputTexture: "backBufferOne" }});
 
                 this.addRenderPass(forwardPass1);
                 this.addRenderPass(webCLPass);
@@ -54,7 +68,7 @@
             }
         });
 
-        webGL.PostProcessingPipeline = PostProcessingPipeline;
+        webgl.PostProcessingPipeline = PostProcessingPipeline;
 
     }());
 
@@ -62,44 +76,71 @@
     (function () {
 
         var WebCLPass = function (pipeline, output, opt) {
-            webGL.BaseRenderPass.call(this, pipeline, output, opt);
+            webgl.BaseRenderPass.call(this, pipeline, output, opt);
         };
 
-        XML3D.createClass(WebCLPass, webGL.BaseRenderPass, {
+        XML3D.createClass(WebCLPass, webgl.BaseRenderPass, {
             init: function (context) {
                 this.debugCanvas = document.getElementById("debug");
                 this.debugCtx = this.debugCanvas.getContext("2d");
-                this.textureBuffer = new Uint8Array(context.canvasTarget.width * context.canvasTarget.height * 4);
+                this.bufSize = (context.canvasTarget.width * context.canvasTarget.height * 4);
+                this.inputTexBuffer = new Uint8Array(this.bufSize);
+                this.screenQuad = new webgl.FullscreenQuad(context);
                 this.gl = this.pipeline.context.gl;
+
+                //WebCL
+                this.clCtx = webcl.ctx;
+                this.grayScaleKernel = webcl.kernels.getKernel("clDesaturate");
+                this.clBufIn = this.clCtx.createBuffer(WebCL.CL_MEM_READ_ONLY, this.bufSize); //Buffer in WebCL Ctx
+                this.clBufOut = this.clCtx.createBuffer(WebCL.CL_MEM_WRITE_ONLY, this.bufSize); //Buffer in WebCL Ctx
+                this.outputTexBuffer = new Uint8Array(this.bufSize);
             },
 
             render: function (scene) {
-                var gl = this.gl, sourceTex, pixelData, imageData;
+                var gl = this.gl, clCtx = this.clCtx, grayScaleKernel = this.grayScaleKernel,
+                    sourceTex, pixelData, imageData, localWS, globalWS;
 
                 //Request the framebuffer from the render pipeline, using its name (in this case 'backBufferOne')
                 sourceTex = this.pipeline.getRenderTarget(this.inputs.inputTexture);
 
                 sourceTex.bind();
-                gl.readPixels(0, 0, sourceTex.height, sourceTex.width, gl.RGBA, gl.UNSIGNED_BYTE, this.textureBuffer);
+                gl.readPixels(0, 0, sourceTex.height, sourceTex.width, gl.RGBA, gl.UNSIGNED_BYTE, this.inputTexBuffer);
                 sourceTex.unbind();
 
-                // Debug code ---
-                pixelData = new Uint8ClampedArray(this.textureBuffer);
+                grayScaleKernel.setKernelArg(0, this.clBufIn);
+                grayScaleKernel.setKernelArg(1, this.clBufOut);
+                grayScaleKernel.setKernelArg(2, sourceTex.width, WebCL.types.UINT);
+                grayScaleKernel.setKernelArg(3, sourceTex.height, WebCL.types.UINT);
+
+                // Write the buffer to OpenCL device memory
+                webcl.cmdQueue.enqueueWriteBuffer(this.clBufIn, false, 0, this.bufSize, this.inputTexBuffer, []);
+
+                // Init ND-range
+                localWS = [16, 4];
+                globalWS = [Math.ceil(sourceTex.height / localWS[0]) * localWS[0],
+                    Math.ceil(sourceTex.width / localWS[1]) * localWS[1]];
+
+                // Execute (enqueue) kernel
+                webcl.cmdQueue.enqueueNDRangeKernel(grayScaleKernel, globalWS.length, [], globalWS, localWS, []);
+
+                // Read the result buffer from OpenCL device
+                webcl.cmdQueue.enqueueReadBuffer(this.clBufOut, false, 0, this.bufSize, this.outputTexBuffer, []);
+
+                webcl.cmdQueue.finish(); //Finish all the operations
+
+
+                // Debug code start ---
+                pixelData = new Uint8ClampedArray(this.outputTexBuffer);
                 imageData = this.debugCtx.createImageData(sourceTex.height, sourceTex.width);
                 imageData.data.set(pixelData);
                 this.debugCtx.putImageData(imageData, 0, 0);
-
                 // --- Debug end
 
-                // TODO: Do something cool with WebCL here by modifying the texturebuffer in WebCL context.
-
-                // We are giving input directly to output for now...
-                this.output = sourceTex;
 
             }
         });
 
-        webGL.WebCLPass = WebCLPass;
+        webgl.WebCLPass = WebCLPass;
 
     }());
 
@@ -107,15 +148,15 @@
     (function () {
 
         var BlitPass = function (pipeline, output, opt) {
-            webGL.BaseRenderPass.call(this, pipeline, output, opt);
+            webgl.BaseRenderPass.call(this, pipeline, output, opt);
             this.screenQuad = {};
         };
 
-        XML3D.createClass(BlitPass, webGL.BaseRenderPass, {
+        XML3D.createClass(BlitPass, webgl.BaseRenderPass, {
             init: function (context) {
                 var shader = context.programFactory.getProgramByName("drawTexture");
                 this.pipeline.addShader("blitShader", shader);
-                this.screenQuad = new webGL.FullscreenQuad(context);
+                this.screenQuad = new webgl.FullscreenQuad(context);
                 this.canvasSize = new Float32Array([context.canvasTarget.width, context.canvasTarget.height]);
                 this.gl = this.pipeline.context.gl;
             },
@@ -141,7 +182,7 @@
             }
         });
 
-        webGL.BlitPass = BlitPass;
+        webgl.BlitPass = BlitPass;
 
     }());
 
@@ -190,7 +231,7 @@
             //It's also available as a render pass under the constructor XML3D.webgl.ForwardRenderPass(context),
             forwardPipeline = renderI.getRenderPipeline();
 
-            PPPipeline = new webGL.PostProcessingPipeline(renderI.context);
+            PPPipeline = new webgl.PostProcessingPipeline(renderI.context);
             PPPipeline.init();
             renderI.setRenderPipeline(PPPipeline);
             currentPipeline = "postProcess";
