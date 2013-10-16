@@ -14,6 +14,25 @@
             "dst[i] = (uchar4)(lum, lum, lum, 255);",
             "}"].join("\n"));
 
+    webcl.kernels.register("clThresholdImage",
+        ["__kernel void clThresholdImage(__global const uchar4* src, __global uchar4* dst, uint width, uint height)",
+            "{",
+            "int x = get_global_id(0);",
+            "int y = get_global_id(1);",
+            "if (x >= width || y >= height) return;",
+            "int i = y * width + x;",
+            "int color = src[i].x;",
+            "if (color < 100)",
+            "{",
+            "color=0;",
+            "}else if (color >= 100 && color < 130){",
+            "color=200;",
+            "}else{",
+            "color=255;",
+            "}",
+            "dst[i] = (uchar4)(color, color, color, 255);",
+            "}"].join("\n"));
+
 
     // Defining post processing pipeline
 
@@ -83,7 +102,9 @@
             init: function (context) {
                 this.debugCanvas = document.getElementById("debug");
                 this.debugCtx = this.debugCanvas.getContext("2d");
-                this.bufSize = (context.canvasTarget.width * context.canvasTarget.height * 4);
+                this.canvasWidth = context.canvasTarget.width;
+                this.canvasHeight = context.canvasTarget.height;
+                this.bufSize = (this.canvasWidth * this.canvasHeight * 4);
                 this.inputTexBuffer = new Uint8Array(this.bufSize);
                 this.screenQuad = new webgl.FullscreenQuad(context);
                 this.gl = this.pipeline.context.gl;
@@ -91,6 +112,10 @@
                 //WebCL
                 this.clCtx = webcl.ctx;
                 this.grayScaleKernel = webcl.kernels.getKernel("clDesaturate");
+                this.thresholdKernel = webcl.kernels.getKernel("clThresholdImage");
+                this.localWS = [16, 4];
+                this.globalWS = [Math.ceil(this.canvasWidth / this.localWS[0]) * this.localWS[0],
+                    Math.ceil(this.canvasHeight / this.localWS[1]) * this.localWS[1]];
                 this.clBufIn = this.clCtx.createBuffer(WebCL.CL_MEM_READ_ONLY, this.bufSize); //Buffer in WebCL Ctx
                 this.clBufOut = this.clCtx.createBuffer(WebCL.CL_MEM_WRITE_ONLY, this.bufSize); //Buffer in WebCL Ctx
                 this.outputTexBuffer = new Uint8Array(this.bufSize);
@@ -98,30 +123,42 @@
 
             render: function (scene) {
                 var gl = this.gl, clCtx = this.clCtx, grayScaleKernel = this.grayScaleKernel,
-                    sourceTex, pixelData, imageData, localWS, globalWS;
+                    width = this.canvasWidth, height = this.canvasHeight,
+                    thresholdKernel = this.thresholdKernel, globalWS = this.globalWS, localWS = this.localWS,
+                    sourceTex, pixelData, imageData;
 
                 //Request the framebuffer from the render pipeline, using its name (in this case 'backBufferOne')
                 sourceTex = this.pipeline.getRenderTarget(this.inputs.inputTexture);
 
                 sourceTex.bind();
-                gl.readPixels(0, 0, sourceTex.height, sourceTex.width, gl.RGBA, gl.UNSIGNED_BYTE, this.inputTexBuffer);
+                gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, this.inputTexBuffer);
                 sourceTex.unbind();
 
                 grayScaleKernel.setKernelArg(0, this.clBufIn);
                 grayScaleKernel.setKernelArg(1, this.clBufOut);
-                grayScaleKernel.setKernelArg(2, sourceTex.width, WebCL.types.UINT);
-                grayScaleKernel.setKernelArg(3, sourceTex.height, WebCL.types.UINT);
+                grayScaleKernel.setKernelArg(2, width, WebCL.types.UINT);
+                grayScaleKernel.setKernelArg(3, height, WebCL.types.UINT);
 
                 // Write the buffer to OpenCL device memory
                 webcl.cmdQueue.enqueueWriteBuffer(this.clBufIn, false, 0, this.bufSize, this.inputTexBuffer, []);
 
-                // Init ND-range
-                localWS = [16, 4];
-                globalWS = [Math.ceil(sourceTex.height / localWS[0]) * localWS[0],
-                    Math.ceil(sourceTex.width / localWS[1]) * localWS[1]];
-
                 // Execute (enqueue) kernel
                 webcl.cmdQueue.enqueueNDRangeKernel(grayScaleKernel, globalWS.length, [], globalWS, localWS, []);
+
+                // Read the result buffer from OpenCL device
+                webcl.cmdQueue.enqueueReadBuffer(this.clBufOut, false, 0, this.bufSize, this.outputTexBuffer, []);
+
+                thresholdKernel.setKernelArg(0, this.clBufIn);
+                thresholdKernel.setKernelArg(1, this.clBufOut);
+                thresholdKernel.setKernelArg(2, width, WebCL.types.UINT);
+                thresholdKernel.setKernelArg(3, height, WebCL.types.UINT);
+
+
+                // Write the buffer to OpenCL device memory
+                webcl.cmdQueue.enqueueWriteBuffer(this.clBufIn, false, 0, this.bufSize, this.outputTexBuffer, []);
+
+                // Execute (enqueue) kernel
+                webcl.cmdQueue.enqueueNDRangeKernel(thresholdKernel, globalWS.length, [], globalWS, localWS, []);
 
                 // Read the result buffer from OpenCL device
                 webcl.cmdQueue.enqueueReadBuffer(this.clBufOut, false, 0, this.bufSize, this.outputTexBuffer, []);
@@ -131,7 +168,7 @@
 
                 // Debug code start ---
                 pixelData = new Uint8ClampedArray(this.outputTexBuffer);
-                imageData = this.debugCtx.createImageData(sourceTex.height, sourceTex.width);
+                imageData = this.debugCtx.createImageData(width, height);
                 imageData.data.set(pixelData);
                 this.debugCtx.putImageData(imageData, 0, 0);
                 // --- Debug end

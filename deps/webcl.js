@@ -19,7 +19,7 @@
         devices,
         ctx,
         cmdQueue,
-        DEFAULT_PLATFORM = "Intel", // IF CUDA crashes in some point, use "Intel"
+        DEFAULT_PLATFORM = "CUDA", // IF CUDA crashes in some point, use "Intel"
         namespace;
 
     console.log("WebCL: Available platforms:");

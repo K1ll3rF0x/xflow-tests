@@ -23,7 +23,7 @@
     <div id="content">
         <h1>Render Pipeline Example</h1>
         <xml3d id="canvas" xmlns="http://www.xml3d.org/2009/xml3d" class="xml3d"
-               activeView="#cameraShape1" style="background-color:black;">
+               activeView="#cameraShape1" style="background-color:deepskyblue;">
             <defs>
 
                 <transform id="t_prop"
@@ -64,8 +64,7 @@
         </xml3d>
 
         <!-- This is just for debugging purposes and it will be removed from final version. -->
-        <canvas id="debug" height="600" width="800"
-                style="-webkit-transform:scaleY(-1); -moz-transform: scaleY(-1);"></canvas>
+        <canvas id="debug" class="xml3d" width="800" height="600" style="-webkit-transform:scaleY(-1); -moz-transform: scaleY(-1);"></canvas>
     </div>
 
     <div id="output"></div>
