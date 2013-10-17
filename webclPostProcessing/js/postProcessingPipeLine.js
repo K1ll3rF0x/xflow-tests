@@ -230,7 +230,6 @@
 
         vertex: [
             "attribute vec3 position;",
-
             "void main(void) {",
             "   gl_Position = vec4(position, 0.0);",
             "}"
@@ -238,11 +237,12 @@
 
         fragment: [
             "uniform sampler2D inputTexture;",
+            "//uniform int flipY;",
             "uniform vec2 canvasSize;",
 
             "void main(void) {",
             "    vec2 texCoord = (gl_FragCoord.xy / canvasSize.xy);",
-            "    gl_FragColor = texture2D(inputTexture, texCoord);",
+            "    gl_FragColor = texture2D(inputTexture, vec2(texCoord.s, 1.0 - texCoord.t));",
             "}"
         ].join("\n"),
 
