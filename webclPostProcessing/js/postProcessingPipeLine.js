@@ -207,7 +207,6 @@
                 gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
                 //gl.generateMipmap(gl.TEXTURE_2D);
 
-
                 //Request the framebuffer from the render pipeline, using its name (in this case 'backBufferOne')
                 program.setUniformVariables({ inputTexture: texture, canvasSize: this.canvasSize});
 
@@ -217,9 +216,7 @@
                 program.unbind();
                 renderTarget.unbind();
 
-
                 //this.output = sourceTex;
-
 
             }
         });
@@ -279,21 +276,25 @@
             renderI.setRenderPipeline(PPPipeline);
             currentPipeline = "postProcess";
         }
-    };
 
-    swapPipelines = function (evt) {
-        if (evt.keyCode === 112) /* P */ {
-            if (currentPipeline === "postProcess") {
-                renderI.setRenderPipeline(forwardPipeline);
-                currentPipeline = "forward";
-            } else {
-                renderI.setRenderPipeline(PPPipeline);
-                currentPipeline = "postProcess";
+        swapPipelines = function (evt) {
+            if (evt.keyCode === 112 || evt.charCode === 112) /* P */ {
+                if (currentPipeline === "postProcess") {
+                    renderI.setRenderPipeline(forwardPipeline);
+                    currentPipeline = "forward";
+
+                } else {
+                    renderI.setRenderPipeline(PPPipeline);
+                    currentPipeline = "postProcess";
+                }
+                console.log("Current pipeline:", currentPipeline, evt);
             }
-        }
+
+        };
+
+        document.addEventListener("keypress", swapPipelines);
     };
 
-    window.addEventListener("keypress", swapPipelines);
     window.addEventListener("load", initPPPipeLine);
 
 
