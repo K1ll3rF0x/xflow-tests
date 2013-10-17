@@ -2,7 +2,6 @@
     var webgl = XML3D.webgl,
         webcl = XML3D.webcl;
 
-
     webcl.kernels.register("clDesaturate",
         ["__kernel void clDesaturate(__global const uchar4* src, __global uchar4* dst, uint width, uint height)",
             "{",
@@ -25,7 +24,7 @@
             "if (color < 100)",
             "{",
             "color=0;",
-            "}else if (color >= 100 && color < 130){",
+            "}else if (color >= 100 && color < 120){",
             "color=200;",
             "}else{",
             "color=255;",
@@ -78,12 +77,10 @@
                 //order that they are added. XML3D.webgl.ForwardRenderPass may be used to draw all visible objects to the given target
 
                 var forwardPass1 = new webgl.ForwardRenderPass(this, "backBufferOne"),
-                    webCLPass = new webgl.WebCLPass(this, "backBufferOne", {inputs: { inputTexture: "backBufferOne" }}),
-                    BlitPass = new webgl.BlitPass(this, "screen", {inputs: { inputTexture: "backBufferOne" }});
+                    webCLPass = new webgl.WebCLPass(this, "screen", {inputs: { inputBuffer: "backBufferOne" }});
 
                 this.addRenderPass(forwardPass1);
                 this.addRenderPass(webCLPass);
-                this.addRenderPass(BlitPass);
             }
         });
 
@@ -100,14 +97,21 @@
 
         XML3D.createClass(WebCLPass, webgl.BaseRenderPass, {
             init: function (context) {
+
+                var shader = context.programFactory.getProgramByName("drawTexture");
+                this.pipeline.addShader("blitShader", shader);
+
+                // WebGL
+                this.gl = this.pipeline.context.gl;
                 this.debugCanvas = document.getElementById("debug");
                 this.debugCtx = this.debugCanvas.getContext("2d");
                 this.canvasWidth = context.canvasTarget.width;
                 this.canvasHeight = context.canvasTarget.height;
+                this.canvasSize = new Float32Array([this.canvasWidth, this.canvasHeight]);
                 this.bufSize = (this.canvasWidth * this.canvasHeight * 4);
-                this.inputTexBuffer = new Uint8Array(this.bufSize);
                 this.screenQuad = new webgl.FullscreenQuad(context);
-                this.gl = this.pipeline.context.gl;
+                this.tempTexBuffer = new Uint8Array(this.bufSize);
+                this.resultTexture = this.gl.createTexture();
 
                 //WebCL
                 this.clCtx = webcl.ctx;
@@ -118,60 +122,103 @@
                     Math.ceil(this.canvasHeight / this.localWS[1]) * this.localWS[1]];
                 this.clBufIn = this.clCtx.createBuffer(WebCL.CL_MEM_READ_ONLY, this.bufSize); //Buffer in WebCL Ctx
                 this.clBufOut = this.clCtx.createBuffer(WebCL.CL_MEM_WRITE_ONLY, this.bufSize); //Buffer in WebCL Ctx
-                this.outputTexBuffer = new Uint8Array(this.bufSize);
             },
 
             render: function (scene) {
-                var gl = this.gl, clCtx = this.clCtx, grayScaleKernel = this.grayScaleKernel,
-                    width = this.canvasWidth, height = this.canvasHeight,
-                    thresholdKernel = this.thresholdKernel, globalWS = this.globalWS, localWS = this.localWS,
-                    sourceTex, pixelData, imageData;
+                var gl = this.gl, clCtx = this.clCtx,
+                    grayScaleKernel = this.grayScaleKernel,
+                    width = this.canvasWidth,
+                    height = this.canvasHeight,
+                    program = this.pipeline.getShader("blitShader"),
+                    thresholdKernel = this.thresholdKernel,
+                    globalWS = this.globalWS, localWS = this.localWS,
+
+                    bufSize = this.bufSize,
+                    clBufOut = this.clBufOut,
+                    clBufIn = this.clBufIn,
+                    tempTexBuffer = this.tempTexBuffer,
+                    texture = this.resultTexture,
 
                 //Request the framebuffer from the render pipeline, using its name (in this case 'backBufferOne')
-                sourceTex = this.pipeline.getRenderTarget(this.inputs.inputTexture);
+                    sourceTex = this.pipeline.getRenderTarget(this.inputs.inputBuffer),
+                    renderTarget = this.pipeline.getRenderTarget(this.output),
+
+                //Variables for debugging
+                    pixelData, imageData;
 
                 sourceTex.bind();
-                gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, this.inputTexBuffer);
+                gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, tempTexBuffer);
                 sourceTex.unbind();
 
-                grayScaleKernel.setKernelArg(0, this.clBufIn);
-                grayScaleKernel.setKernelArg(1, this.clBufOut);
+                grayScaleKernel.setKernelArg(0, clBufIn);
+                grayScaleKernel.setKernelArg(1, clBufOut);
                 grayScaleKernel.setKernelArg(2, width, WebCL.types.UINT);
                 grayScaleKernel.setKernelArg(3, height, WebCL.types.UINT);
 
                 // Write the buffer to OpenCL device memory
-                webcl.cmdQueue.enqueueWriteBuffer(this.clBufIn, false, 0, this.bufSize, this.inputTexBuffer, []);
+                webcl.cmdQueue.enqueueWriteBuffer(clBufIn, false, 0, bufSize, tempTexBuffer, []);
 
                 // Execute (enqueue) kernel
                 webcl.cmdQueue.enqueueNDRangeKernel(grayScaleKernel, globalWS.length, [], globalWS, localWS, []);
 
                 // Read the result buffer from OpenCL device
-                webcl.cmdQueue.enqueueReadBuffer(this.clBufOut, false, 0, this.bufSize, this.outputTexBuffer, []);
+                webcl.cmdQueue.enqueueReadBuffer(clBufOut, false, 0, bufSize, tempTexBuffer, []);
 
-                thresholdKernel.setKernelArg(0, this.clBufIn);
-                thresholdKernel.setKernelArg(1, this.clBufOut);
+                thresholdKernel.setKernelArg(0, clBufIn);
+                thresholdKernel.setKernelArg(1, clBufOut);
                 thresholdKernel.setKernelArg(2, width, WebCL.types.UINT);
                 thresholdKernel.setKernelArg(3, height, WebCL.types.UINT);
 
 
                 // Write the buffer to OpenCL device memory
-                webcl.cmdQueue.enqueueWriteBuffer(this.clBufIn, false, 0, this.bufSize, this.outputTexBuffer, []);
+                webcl.cmdQueue.enqueueWriteBuffer(clBufIn, false, 0, bufSize, tempTexBuffer, []);
 
                 // Execute (enqueue) kernel
                 webcl.cmdQueue.enqueueNDRangeKernel(thresholdKernel, globalWS.length, [], globalWS, localWS, []);
 
                 // Read the result buffer from OpenCL device
-                webcl.cmdQueue.enqueueReadBuffer(this.clBufOut, false, 0, this.bufSize, this.outputTexBuffer, []);
+                webcl.cmdQueue.enqueueReadBuffer(clBufOut, false, 0, bufSize, tempTexBuffer, []);
 
                 webcl.cmdQueue.finish(); //Finish all the operations
 
+                /* Debug code start ---
+                 pixelData = new Uint8ClampedArray(this.outputTexBuffer);
+                 imageData = this.debugCtx.createImageData(width, height);
+                 imageData.data.set(pixelData);
+                 this.debugCtx.putImageData(imageData, 0, 0);
+                 // --- Debug end */
 
-                // Debug code start ---
-                pixelData = new Uint8ClampedArray(this.outputTexBuffer);
-                imageData = this.debugCtx.createImageData(width, height);
-                imageData.data.set(pixelData);
-                this.debugCtx.putImageData(imageData, 0, 0);
-                // --- Debug end
+                // Rendering results from WebCL kernels on canvas
+                renderTarget.bind();
+                program.bind();
+
+                gl.clear(gl.DEPTH_BUFFER_BIT || gl.COLOR_BUFFER_BIT);
+
+                gl.activeTexture(gl.TEXTURE0);
+                gl.bindTexture(gl.TEXTURE_2D, texture);
+                gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+                // Creating texture from pixel data
+
+                //gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, imageData);
+                gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 800, 600, 0, gl.RGBA, gl.UNSIGNED_BYTE, tempTexBuffer);
+                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+                //gl.generateMipmap(gl.TEXTURE_2D);
+
+
+                //Request the framebuffer from the render pipeline, using its name (in this case 'backBufferOne')
+                program.setUniformVariables({ inputTexture: texture, canvasSize: this.canvasSize});
+
+                this.screenQuad.draw(program);
+
+                gl.bindTexture(gl.TEXTURE_2D, null);
+                program.unbind();
+                renderTarget.unbind();
+
+
+                //this.output = sourceTex;
 
 
             }
@@ -181,47 +228,6 @@
 
     }());
 
-
-    (function () {
-
-        var BlitPass = function (pipeline, output, opt) {
-            webgl.BaseRenderPass.call(this, pipeline, output, opt);
-            this.screenQuad = {};
-        };
-
-        XML3D.createClass(BlitPass, webgl.BaseRenderPass, {
-            init: function (context) {
-                var shader = context.programFactory.getProgramByName("drawTexture");
-                this.pipeline.addShader("blitShader", shader);
-                this.screenQuad = new webgl.FullscreenQuad(context);
-                this.canvasSize = new Float32Array([context.canvasTarget.width, context.canvasTarget.height]);
-                this.gl = this.pipeline.context.gl;
-            },
-
-            render: function (scene) {
-                var gl = this.gl,
-                    target = this.pipeline.getRenderTarget(this.output),
-                    program = this.pipeline.getShader("blitShader"),
-                    sourceTex = this.pipeline.getRenderTarget(this.inputs.inputTexture);
-
-                target.bind();
-                gl.clear(gl.DEPTH_BUFFER_BIT || gl.COLOR_BUFFER_BIT);
-
-                program.bind();
-
-                //Request the framebuffer from the render pipeline, using its name (in this case 'backBufferOne')
-                program.setUniformVariables({ inputTexture: sourceTex.colorTarget, canvasSize: this.canvasSize});
-
-                this.screenQuad.draw(program);
-
-                program.unbind();
-                target.unbind();
-            }
-        });
-
-        webgl.BlitPass = BlitPass;
-
-    }());
 
     XML3D.shaders.register("drawTexture", {
 
