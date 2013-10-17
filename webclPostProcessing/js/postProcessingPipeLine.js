@@ -208,7 +208,7 @@
                 //gl.generateMipmap(gl.TEXTURE_2D);
 
                 //Request the framebuffer from the render pipeline, using its name (in this case 'backBufferOne')
-                program.setUniformVariables({ inputTexture: texture, canvasSize: this.canvasSize});
+                program.setUniformVariables({ inputTexture: texture, canvasSize: this.canvasSize, flipY: 1});
 
                 this.screenQuad.draw(program);
 
@@ -237,12 +237,12 @@
 
         fragment: [
             "uniform sampler2D inputTexture;",
-            "//uniform int flipY;",
+            "uniform float flipY;",
             "uniform vec2 canvasSize;",
 
             "void main(void) {",
             "    vec2 texCoord = (gl_FragCoord.xy / canvasSize.xy);",
-            "    gl_FragColor = texture2D(inputTexture, vec2(texCoord.s, 1.0 - texCoord.t));",
+            "    gl_FragColor = texture2D(inputTexture, vec2(texCoord.s, (1.0-flipY) * texCoord.t + flipY * (1.0 - texCoord.t)));",
             "}"
         ].join("\n"),
 
