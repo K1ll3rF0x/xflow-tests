@@ -2,6 +2,7 @@
     var webgl = XML3D.webgl,
         webcl = XML3D.webcl;
 
+    // Registering WebCL kernels and WebGL shaders
     webcl.kernels.register("clDesaturate",
         ["__kernel void clDesaturate(__global const uchar4* src, __global uchar4* dst, uint width, uint height)",
             "{",
@@ -32,6 +33,34 @@
             "dst[i] = (uchar4)(color, color, color, 255);",
             "}"].join("\n"));
 
+    XML3D.shaders.register("drawTexture", {
+
+        vertex: [
+            "attribute vec3 position;",
+            "void main(void) {",
+            "   gl_Position = vec4(position, 0.0);",
+            "}"
+        ].join("\n"),
+
+        fragment: [
+            "uniform sampler2D inputTexture;",
+            "uniform float flipY;",
+            "uniform vec2 canvasSize;",
+
+            "void main(void) {",
+            "    vec2 texCoord = (gl_FragCoord.xy / canvasSize.xy);",
+            "    gl_FragColor = texture2D(inputTexture, vec2(texCoord.s, (1.0-flipY) * texCoord.t + flipY * (1.0 - texCoord.t)));",
+            "}"
+        ].join("\n"),
+
+        uniforms: {
+            canvasSize: [512, 512]
+        },
+
+        samplers: {
+            inputTexture: null
+        }
+    });
 
     // Defining post processing pipeline
 
@@ -226,36 +255,6 @@
     }());
 
 
-    XML3D.shaders.register("drawTexture", {
-
-        vertex: [
-            "attribute vec3 position;",
-            "void main(void) {",
-            "   gl_Position = vec4(position, 0.0);",
-            "}"
-        ].join("\n"),
-
-        fragment: [
-            "uniform sampler2D inputTexture;",
-            "uniform float flipY;",
-            "uniform vec2 canvasSize;",
-
-            "void main(void) {",
-            "    vec2 texCoord = (gl_FragCoord.xy / canvasSize.xy);",
-            "    gl_FragColor = texture2D(inputTexture, vec2(texCoord.s, (1.0-flipY) * texCoord.t + flipY * (1.0 - texCoord.t)));",
-            "}"
-        ].join("\n"),
-
-        uniforms: {
-            canvasSize: [512, 512]
-        },
-
-        samplers: {
-            inputTexture: null
-        }
-    });
-
-
     // --- Initialisation ---
 
     var PPPipeline, forwardPipeline, currentPipeline, renderI, initPPPipeLine, swapPipelines;
@@ -287,7 +286,7 @@
                     renderI.setRenderPipeline(PPPipeline);
                     currentPipeline = "postProcess";
                 }
-                console.log("Current pipeline:", currentPipeline, evt);
+                console.log("Current pipeline:", currentPipeline);
             }
 
         };
