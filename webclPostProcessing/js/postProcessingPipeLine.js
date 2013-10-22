@@ -174,7 +174,6 @@
 
                 //Variables for debugging
                     pixelData, imageData;
-
                 sourceTex.bind();
                 gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, tempTexBuffer);
                 sourceTex.unbind();
