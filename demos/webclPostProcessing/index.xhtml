@@ -5,9 +5,9 @@
     <link rel="stylesheet" type="text/css" media="all" href="page.css"/>
     <!-- Scripts -->
     <title>XML3D Examples</title>
-    <script type="text/javascript" src="../deps/xml3d-internal.js"></script>
-    <script type="text/javascript" src="../deps/xml3d-motion.js"></script>
-    <script type="text/javascript" src="../deps/webcl.js"></script>
+    <script type="text/javascript" src="../../deps/xml3d-internal.js"></script>
+    <script type="text/javascript" src="../../deps/xml3d-motion.js"></script>
+    <script type="text/javascript" src="../../deps/webcl.js"></script>
 
 
     <script type="text/javascript">
@@ -40,15 +40,15 @@
             </defs>
             <group id="VisualSceneNode">
                 <group id="plane">
-                    <group shader="../assets/plane.xml#shader_matte">
-                        <mesh src="../assets/plane.xml#mesh1" type="triangles"/>
+                    <group shader="../../assets/plane.xml#shader_matte">
+                        <mesh src="../../assets/plane.xml#mesh1" type="triangles"/>
                     </group>
-                    <group shader="../assets/plane.xml#shader_shine">
-                        <mesh src="../assets/plane.xml#mesh2" type="triangles"/>
+                    <group shader="../../assets/plane.xml#shader_shine">
+                        <mesh src="../../assets/plane.xml#mesh2" type="triangles"/>
                     </group>
                     <group id="prop" transform="#t_prop">
-                        <group shader="../assets/plane.xml#shader_shine">
-                            <mesh src="../assets/plane.xml#mesh_prop" type="triangles"/>
+                        <group shader="../../assets/plane.xml#shader_shine">
+                            <mesh src="../../assets/plane.xml#mesh_prop" type="triangles"/>
                         </group>
                     </group>
                 </group>
@@ -71,7 +71,7 @@
 
 </div>
 
-<script type="text/javascript" src="js/postProcessingPipeLine.js"></script>
+<script type="text/javascript" src="postProcessingPipeLine.js"></script>
 
 </body>
 
