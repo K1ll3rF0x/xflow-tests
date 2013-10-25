@@ -271,6 +271,7 @@
 
             PPPipeline = new webgl.PostProcessingPipeline(renderI.context);
             PPPipeline.init();
+            console.log(PPPipeline)
             renderI.setRenderPipeline(PPPipeline);
             currentPipeline = "postProcess";
         }

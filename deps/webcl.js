@@ -1,5 +1,7 @@
 (function () {
 
+    //TODO: This file is work in progress! Helpful API methods concerning WebCL will be added when needed.
+
     // First check if the WebCL extension is installed at all
     if (window.WebCL === undefined) {
         alert("Unfortunately your system does not support WebCL. " +

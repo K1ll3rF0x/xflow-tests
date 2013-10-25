@@ -1,106 +1,30 @@
 (function () {
-
-    function logError(e) {
-        document.getElementById("output").innerHTML += "<h3>ERROR:</h3><pre style=\"color:red;\">" + e.message + "</pre>";
-    }
-
-    // First check if the WebCL extension is installed at all
-    if (window.WebCL === undefined) {
-        alert("Unfortunately your system does not support WebCL. " +
-            "Make sure that you have both the OpenCL driver " +
-            "and the WebCL browser extension installed.");
-        logError(new Error("No WebCL available!"));
-        return;
-    }
-
-    /*
-     * Selecting device platform and initialising WebCL context
-     *
-     */
-
-    var platforms = WebCL.getPlatformIDs(),
-        platform,
-        devices,
-        ctx,
-        cmdQueue,
-        DEFAULT_PLATFORM = "Intel"; // IF CUDA crashes in some point, use "Intel"
-
-    console.log("Available platforms:");
-
-    platforms.forEach(function (p) {
-        var name = p.getPlatformInfo(WebCL.CL_PLATFORM_NAME);
-        console.log(name);
-
-        if (name.indexOf(DEFAULT_PLATFORM) !== -1) {
-            platform = p;
-        }
-    });
-
-    // Selecting CPU as default platform if DEFAULT_PLATFORM is not available
-    if (!platform) {
-        platform = platforms[0];
-    }
-
-    console.log("Setting platform to: " + platform.getPlatformInfo(WebCL.CL_PLATFORM_NAME));
-
-    ctx = WebCL.createContextFromType([WebCL.CL_CONTEXT_PLATFORM, platform], WebCL.CL_DEVICE_TYPE_DEFAULT);
-    devices = ctx.getContextInfo(WebCL.CL_CONTEXT_DEVICES);
-
-    console.log("Available devices on " + platform.getPlatformInfo(WebCL.CL_PLATFORM_NAME) + ":");
-
-    devices.forEach(function (device) {
-        console.log(device.getDeviceInfo(WebCL.CL_DEVICE_NAME));
-    });
-
-    // Create command queue using the first available device
-    cmdQueue = ctx.createCommandQueue(devices[0], 0);
-
-
-    /**
-     * WebCL accelerated Image Thresholding
-     *
-     */
+    var webcl = XML3D.webcl,
+        cmdQueue = webcl.cmdQueue,
+        ctx = webcl.ctx;
 
     (function () {
-        var clThresholdImage = "__kernel void clThresholdImage(__global const uchar4* src, __global uchar4* dst, uint width, uint height) " +
-                "{ " +
-                "int x = get_global_id(0); " +
-                "int y = get_global_id(1); " +
-                "if (x >= width || y >= height) return; " +
-                "int i = y * width + x; " +
-                "int color = src[i].x;" +
-                "if (color <= 150)" +
-                "{" +
-                "color= 0;" +
-                "}" +
-                "dst[i] = (uchar4)(color, color, color, 255);" +
+        webcl.kernels.register("clThresholdImage",
+            ["__kernel void clThresholdImage(__global const uchar4* src, __global uchar4* dst, uint width, uint height)",
+                "{",
+                "int x = get_global_id(0);",
+                "int y = get_global_id(1);",
+                "if (x >= width || y >= height) return;",
+                "int i = y * width + x;",
+                "int color = src[i].x;",
+                "if (color < 50)",
+                "{",
+                "color=0;",
+                "}else{",
+                "color=255;",
                 "}",
+                "dst[i] = (uchar4)(color, color, color, 255);",
+                "}"].join("\n"));
 
-            program = ctx.createProgramWithSource(clThresholdImage),
-            kernel,
+        var kernel = webcl.kernels.getKernel("clThresholdImage"),
             oldBufSize = 0,
             buffers = {bufIn: null, bufOut: null};
 
-        try {
-            program.buildProgram([devices[0]], "");
-        } catch (e) {
-            alert("Failed to build WebCL program. Error "
-                + program.getProgramBuildInfo(devices[0], WebCL.CL_PROGRAM_BUILD_STATUS)
-                + ":  " + program.getProgramBuildInfo(devices[0], WebCL.CL_PROGRAM_BUILD_LOG));
-            logError(e);
-            return;
-        }
-
-
-        try {
-            kernel = program.createKernel("clThresholdImage");
-        } catch (e) {
-            alert("Failed to create WebCL kernel. Error "
-                + program.getProgramBuildInfo(devices[0], WebCL.CL_PROGRAM_BUILD_STATUS)
-                + ":  " + program.getProgramBuildInfo(devices[0], WebCL.CL_PROGRAM_BUILD_LOG));
-            logError(e);
-            return;
-        }
 
         Xflow.registerOperator("xflow.clThresholdImage", {
             outputs: [
@@ -114,8 +38,7 @@
                 //console.time("clThresholdImage");
 
                 //passing xflow operators input data
-                var s = image.data,
-                    width = image.width,
+                var width = image.width,
                     height = image.height,
                     imgSize = width * height,
 
@@ -172,44 +95,21 @@
      */
 
     (function () {
-        var clProgramDesaturate = "__kernel void clDesaturate(__global const uchar4* src, __global uchar4* dst, uint width, uint height)" +
-                "{" +
-                "int x = get_global_id(0);" +
-                "int y = get_global_id(1);" +
-                "if (x >= width || y >= height) return;" +
-                "int i = y * width + x;  uchar4 color = src[i];" +
-                "uchar lum = (uchar)(0.30f * color.x + 0.59f * color.y + 0.11f * color.z);" +
-                "dst[i] = (uchar4)(lum, lum, lum, 255);" +
-                "}",
+        webcl.kernels.register("clDesaturate",
+            ["__kernel void clDesaturate(__global const uchar4* src, __global uchar4* dst, uint width, uint height)",
+                "{",
+                "int x = get_global_id(0);",
+                "int y = get_global_id(1);",
+                "if (x >= width || y >= height) return;",
+                "int i = y * width + x;  uchar4 color = src[i];",
+                "uchar lum = (uchar)(0.30f * color.x + 0.59f * color.y + 0.11f * color.z);",
+                "dst[i] = (uchar4)(lum, lum, lum, 255);",
+                "}"].join("\n"));
 
-
-        // Create and build program
-            program = ctx.createProgramWithSource(clProgramDesaturate /* loadKernel("clProgramDesaturate")*/),
-            devices = ctx.getContextInfo(WebCL.CL_CONTEXT_DEVICES),
-            kernel,
+        var kernel = webcl.kernels.getKernel("clDesaturate"),
             oldBufSize = 0,
             buffers = {bufIn: null, bufOut: null};
 
-
-        try {
-            program.buildProgram([devices[0]], "");
-        } catch (e) {
-            alert("Failed to build WebCL program. Error "
-                + program.getProgramBuildInfo(devices[0], WebCL.CL_PROGRAM_BUILD_STATUS)
-                + ":  " + program.getProgramBuildInfo(devices[0], WebCL.CL_PROGRAM_BUILD_LOG));
-            logError(e);
-        }
-
-        // Create kernel and set arguments
-        try {
-            kernel = program.createKernel("clDesaturate");
-        } catch (e) {
-            alert("Failed to build WebCL program. Error "
-                + program.getProgramBuildInfo(devices[0], WebCL.CL_PROGRAM_BUILD_STATUS)
-                + ":  " + program.getProgramBuildInfo(devices[0], WebCL.CL_PROGRAM_BUILD_LOG));
-            logError(e);
-            return;
-        }
 
         Xflow.registerOperator("xflow.clDesaturateImage", {
             outputs: [
@@ -222,8 +122,7 @@
                 //console.time("clDesaturate");
 
                 //passing xflow operators input data
-                var s = image.data,
-                    width = image.width,
+                var width = image.width,
                     height = image.height,
                     imgSize = width * height,
 
