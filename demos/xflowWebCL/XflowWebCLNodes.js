@@ -171,7 +171,7 @@
 
     (function () {
         webcl.kernels.register("clBlur",
-            ["__kernel void clBlur(__global const uchar4* src, __global uchar4* dst, uint width, uint height, uint blurSize)",
+            ["__kernel void clBlur(__global const uchar4* src, __global uchar4* dst, uint width, uint height, float blurSize)",
                 "{",
                 "const float m[9] = {0.05f, 0.09f, 0.12f, 0.15f, 0.16f, 0.15f, 0.12f, 0.09f, 0.05f};",
 
@@ -239,7 +239,7 @@
                 kernel.setArg(1, bufOut);
                 kernel.setArg(2, new Uint32Array([width]));
                 kernel.setArg(3, new Uint32Array([height]));
-                kernel.setArg(4, new Uint32Array([6]));
+                kernel.setArg(4, new Float32Array([6.6]));
 
                 // Write the buffer to OpenCL device memory
                 cmdQueue.enqueueWriteBuffer(bufIn, false, 0, bufSize, image.data, []);
