@@ -11824,8 +11824,7 @@ TextureEntry.prototype._setImage = function(v) {
         notifyListeners(this, Xflow.DATA_ENTRY_STATE.LOAD_START);
     }
     else if(this._loading){
-        this._loading = false;
-        notifyListeners(this, Xflow.DATA_ENTRY_STATE.LOAD_END);
+        this._loadListeners(this, Xflow.DATA_ENTRY_STATE.LOAD_END);
     }
     else
         notifyListeners(this, Xflow.DATA_ENTRY_STATE.CHANGED_VALUE);

@@ -42,7 +42,7 @@
 
     console.log("WebCL: Setting platform to: " + platform.getInfo(WebCL.CL_PLATFORM_NAME));
 
-    ctx = WebCL.createContext([WebCL.CL_CONTEXT_PLATFORM, platform]);
+    ctx = WebCL.createContext({devices: platform.getDevices(WebCL.DEVICE_TYPE_GPU)});
     devices = ctx.getInfo(WebCL.CL_CONTEXT_DEVICES);
 
     console.log("WebCL: Available devices on " + platform.getInfo(WebCL.CL_PLATFORM_NAME) + ":");
